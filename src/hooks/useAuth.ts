@@ -7,11 +7,20 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const loadingTimeout = window.setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
-      setLoading(loading => false);
+      setLoading(false);
+      window.clearTimeout(loadingTimeout);
     });
-    return unsubscribe;
+
+    return () => {
+      window.clearTimeout(loadingTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const login = async () => {

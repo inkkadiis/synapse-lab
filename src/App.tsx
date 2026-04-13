@@ -204,7 +204,10 @@ export default function App() {
   if (authLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0a] dark:bg-[#0a0a0a] bg-white">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-3 text-gray-600 dark:text-gray-300">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm">로그인 상태를 확인 중입니다...</p>
+        </div>
       </div>
     );
   }

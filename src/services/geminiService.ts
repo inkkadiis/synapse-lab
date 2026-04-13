@@ -1,8 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient() {
+  if (aiClient) return aiClient;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  aiClient = new GoogleGenAI({ apiKey });
+  return aiClient;
+}
 
 export const analyzePaper = async (pdfText: string) => {
+  const ai = getAiClient();
+  if (!ai) {
+    throw new Error("GEMINI_API_KEY is not configured. Please add it to your deployment environment.");
+  }
+
   const prompt = `
     당신은 BCI(Brain-Computer Interface), HCI(Human-Computer Interaction), Zero-UI 분야의 시니어 연구원입니다.
     다음 논문의 전문 텍스트를 분석하여 한국어로 상세 리포트를 작성하세요.

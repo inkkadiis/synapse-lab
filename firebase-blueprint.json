@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "Paper": {
+      "title": "Paper",
+      "description": "Research paper metadata and AI analysis",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier (often arXiv ID)" },
+        "title": { "type": "string", "description": "Original title of the paper" },
+        "authors": { "type": "array", "items": { "type": "string" }, "description": "List of authors" },
+        "pdfUrl": { "type": "string", "format": "uri", "description": "Direct link to the PDF" },
+        "publishedAt": { "type": "string", "format": "date-time", "description": "Publication date" },
+        "abstract": { "type": "string", "description": "Original abstract" },
+        "analysis_ko": {
+          "type": "object",
+          "properties": {
+            "summary": { "type": "string", "description": "Overall summary in Korean" },
+            "methodology": { "type": "string", "description": "Research methodology analysis" },
+            "experimental_results": { "type": "string", "description": "Specific experimental figures and results" },
+            "implementation_feasibility": { "type": "string", "description": "Full-diving/Technical implementation feasibility" },
+            "key_takeaways": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "isAnalyzed": { "type": "boolean", "description": "Whether AI analysis is complete" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string", "description": "Owner of the record" }
+      },
+      "required": ["title", "pdfUrl", "publishedAt", "userId"]
+    }
+  },
+  "firestore": {
+    "/papers/{paperId}": {
+      "schema": "Paper",
+      "description": "Collection of research papers and their analyses"
+    }
+  }
+}

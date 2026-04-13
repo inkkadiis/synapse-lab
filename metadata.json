@@ -1,0 +1,5 @@
+{
+  "name": "Synapse Lab",
+  "description": "Private research lab for BCI/HCI/Zero-UI paper analysis using Gemini 1.5 Pro.",
+  "requestFramePermissions": []
+}

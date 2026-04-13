@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: papers
+    // Fields:
+    //   - title: string (required)
+    //   - authors: list (optional)
+    //   - pdfUrl: string (required, URL)
+    //   - publishedAt: timestamp (required)
+    //   - abstract: string (optional)
+    //   - analysis_ko: map (optional)
+    //   - isAnalyzed: bool (optional)
+    //   - createdAt: timestamp (required)
+    //   - userId: string (required, owner)
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidPaper(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             data.pdfUrl is string && data.pdfUrl.matches("^https?://.*") &&
+             data.userId == request.auth.uid;
+    }
+
+    match /papers/{paperId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAuthenticated() && isValidPaper(request.resource.data);
+      allow update: if isOwner(resource.data.userId) && isValidPaper(request.resource.data);
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

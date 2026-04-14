@@ -6,7 +6,7 @@ import { createRequire } from "module";
 import { XMLParser } from "fast-xml-parser";
 
 const require = createRequire(import.meta.url);
-const pdf = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 
 async function startServer() {
   const app = express();
@@ -101,9 +101,11 @@ async function startServer() {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
+    let parser: any = null;
     try {
       const response = await axios.get(url, { responseType: "arraybuffer" });
-      const data = await pdf(response.data);
+      parser = new PDFParse({ data: response.data });
+      const data = await parser.getText();
       
       // Limit text size for Gemini context (approx 30k chars for safety)
       const text = data.text.substring(0, 50000);
@@ -111,6 +113,10 @@ async function startServer() {
     } catch (error: any) {
       console.error("PDF Extraction Error:", error);
       res.status(500).json({ error: "Failed to extract PDF text" });
+    } finally {
+      if (parser) {
+        await parser.destroy?.();
+      }
     }
   });
 

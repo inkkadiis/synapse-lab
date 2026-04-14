@@ -33,17 +33,63 @@ import { format } from "date-fns";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import { Timestamp } from "firebase/firestore";
 
+function normalizePdfUrl(url: string, source?: string) {
+  if (!url) return url;
+
+  const trimmed = url.trim();
+
+  if (source === "arXiv" || trimmed.includes("arxiv.org")) {
+    const httpsUrl = trimmed.replace("http://", "https://");
+    if (httpsUrl.includes("/abs/")) {
+      return httpsUrl.replace("/abs/", "/pdf/").replace(/v\d+$/, (m) => `${m}.pdf`);
+    }
+    if (httpsUrl.includes("/pdf/") && !httpsUrl.endsWith(".pdf")) {
+      return `${httpsUrl}.pdf`;
+    }
+    return httpsUrl;
+  }
+
+  if (source === "bioRxiv" || trimmed.includes("biorxiv.org/content/")) {
+    if (trimmed.endsWith(".pdf")) return trimmed.replace("http://", "https://");
+    return `${trimmed.replace(/\/$/, "").replace("http://", "https://")}.full.pdf`;
+  }
+
+  return trimmed.replace("http://", "https://");
+}
+
+function getPaperLandingUrl(pdfUrl: string, source?: string) {
+  if (!pdfUrl) return pdfUrl;
+  const normalized = normalizePdfUrl(pdfUrl, source);
+
+  if (source === "arXiv" || normalized.includes("arxiv.org")) {
+    return normalized.replace("/pdf/", "/abs/").replace(/\.pdf$/i, "");
+  }
+
+  if (source === "bioRxiv" || normalized.includes("biorxiv.org/content/")) {
+    return normalized.replace(/\.full\.pdf$/i, "").replace(/\.pdf$/i, "");
+  }
+
+  return normalized;
+}
+
 export default function App() {
-  const { user, loading: authLoading, login, logout } = useAuth();
+  const { user, loading: authLoading, login, loginDebug, logout } = useAuth();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
   const [newPaperUrl, setNewPaperUrl] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [pdfViewState, setPdfViewState] = useState<"loading" | "ready" | "fallback">("loading");
+  const [pdfLoadNonce, setPdfLoadNonce] = useState(0);
+
+  const selectedPdfUrl = selectedPaper ? normalizePdfUrl(selectedPaper.pdfUrl, selectedPaper.source) : "";
+  const selectedPaperUrl = selectedPaper ? getPaperLandingUrl(selectedPaper.pdfUrl, selectedPaper.source) : "";
+  const mightBlockInline = selectedPaper?.source === "bioRxiv";
 
   useEffect(() => {
     if (user) {
@@ -59,6 +105,17 @@ export default function App() {
       root.classList.remove("dark");
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!selectedPaper || !selectedPdfUrl) return;
+    setPdfViewState("loading");
+
+    const fallbackTimer = window.setTimeout(() => {
+      setPdfViewState((prev) => (prev === "ready" ? prev : "fallback"));
+    }, 9000);
+
+    return () => window.clearTimeout(fallbackTimer);
+  }, [selectedPaper?.id, selectedPdfUrl, pdfLoadNonce]);
 
   const toggleTheme = () => setTheme(prev => prev === "dark" ? "light" : "dark");
 
@@ -109,7 +166,7 @@ export default function App() {
       for (const p of allFetched) {
         const paperData: Partial<Paper> = {
           title: p.title,
-          pdfUrl: p.pdfUrl,
+          pdfUrl: normalizePdfUrl(p.pdfUrl, p.source),
           authors: p.authors,
           abstract: p.abstract,
           publishedAt: Timestamp.fromDate(new Date(p.publishedAt)),
@@ -146,11 +203,16 @@ export default function App() {
       // 2. AI Analysis
       const analysis = await analyzePaper(text);
       await updatePaperAnalysis(paper.id, analysis);
+      const analyzedAt = Timestamp.now();
 
       // 3. Update local state
-      setPapers(prev => prev.map(p => p.id === paper.id ? { ...p, analysis_ko: analysis, isAnalyzed: true } : p));
+      setPapers(prev =>
+        prev.map(p =>
+          p.id === paper.id ? { ...p, analysis_ko: analysis, isAnalyzed: true, analyzedAt } : p
+        )
+      );
       if (selectedPaper?.id === paper.id) {
-        setSelectedPaper({ ...paper, analysis_ko: analysis, isAnalyzed: true });
+        setSelectedPaper({ ...paper, analysis_ko: analysis, isAnalyzed: true, analyzedAt });
       }
     } catch (error) {
       console.error("Analysis Error:", error);
@@ -163,10 +225,11 @@ export default function App() {
     if (!user || !newPaperUrl) return;
     setAnalyzing(true);
     try {
-      const arxivId = newPaperUrl.split("/").pop()?.replace(".pdf", "") || "unknown";
+      const normalizedUrl = normalizePdfUrl(newPaperUrl);
+      const arxivId = normalizedUrl.split("/").pop()?.replace(".pdf", "") || "unknown";
       const paperData: Partial<Paper> = {
         title: `Research Paper (${arxivId})`,
-        pdfUrl: newPaperUrl,
+        pdfUrl: normalizedUrl,
         publishedAt: Timestamp.now(),
         userId: user.uid,
         authors: ["Unknown Author"]
@@ -185,7 +248,7 @@ export default function App() {
       const extractRes = await fetch("/api/extract-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: newPaperUrl })
+        body: JSON.stringify({ url: normalizedUrl })
       });
       const { text } = await extractRes.json();
 
@@ -198,6 +261,32 @@ export default function App() {
       console.error("Add Paper Error:", error);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleSaveAnalysis = async (paper: Paper) => {
+    if (!paper.analysis_ko) {
+      alert("저장할 분석 결과가 없습니다.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updatePaperAnalysis(paper.id, paper.analysis_ko);
+      const analyzedAt = Timestamp.now();
+
+      setPapers((prev) =>
+        prev.map((p) => (p.id === paper.id ? { ...p, isAnalyzed: true, analyzedAt } : p))
+      );
+      if (selectedPaper?.id === paper.id) {
+        setSelectedPaper({ ...paper, isAnalyzed: true, analyzedAt });
+      }
+      alert("분석 내용을 저장했습니다.");
+    } catch (error) {
+      console.error("Save Analysis Error:", error);
+      alert("저장 중 오류가 발생했습니다.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -233,6 +322,11 @@ export default function App() {
           <Button onClick={login} size="lg" className="w-full rounded-xl font-semibold">
             Google 계정으로 로그인
           </Button>
+          {import.meta.env.DEV && (
+            <Button onClick={loginDebug} variant="outline" size="lg" className="w-full rounded-xl">
+              로컬 디버그 계정으로 로그인
+            </Button>
+          )}
         </motion.div>
       </div>
     );
@@ -339,7 +433,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-medium">{user.displayName}</span>
-                    <span className="text-[10px] text-gray-500">Researcher</span>
+                    <span className="text-[10px] text-gray-500">{user.isDebug ? "Local Debug" : "Researcher"}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -394,14 +488,54 @@ export default function App() {
             <div className="h-full flex flex-col md:flex-row">
               {/* PDF Viewer (Split View) */}
               <div className="flex-1 border-r border-gray-200 dark:border-white/10 bg-gray-200 dark:bg-black relative">
+                {mightBlockInline && (
+                  <div className="absolute top-4 left-4 z-10 max-w-sm rounded-lg bg-black/70 text-white text-xs px-3 py-2">
+                    bioRxiv는 iframe 미리보기를 차단할 수 있습니다. 우측 상단에서 논문 페이지 또는 PDF를 여세요.
+                  </div>
+                )}
                 <iframe 
-                  src={`${selectedPaper.pdfUrl}#toolbar=0`} 
+                  key={`${selectedPaper.id}-${pdfLoadNonce}`}
+                  src={`${selectedPdfUrl}#toolbar=0`} 
                   className="w-full h-full"
                   title="PDF Viewer"
+                  onLoad={() => setPdfViewState("ready")}
+                  onError={() => setPdfViewState("fallback")}
                 />
-                <div className="absolute top-4 right-4">
+                {pdfViewState !== "ready" && (
+                  <div className="absolute inset-0 bg-black/45 flex items-center justify-center p-6">
+                    <div className="max-w-md text-center space-y-3 rounded-2xl bg-white/95 dark:bg-[#111] p-5 border border-gray-200 dark:border-white/10">
+                      <p className="text-sm font-medium">
+                        {pdfViewState === "loading" ? "PDF를 불러오는 중입니다..." : "이 논문은 앱 내 미리보기가 제한될 수 있습니다."}
+                      </p>
+                      <div className="flex items-center justify-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setPdfLoadNonce((prev) => prev + 1)}>
+                          다시 시도
+                        </Button>
+                        <a
+                          href={selectedPdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground px-3 h-8 text-xs font-medium"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1.5" />
+                          새 탭에서 열기
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="absolute top-4 right-4 flex items-center gap-2">
+                  <a
+                    href={selectedPaperUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-full bg-white dark:bg-secondary text-gray-900 dark:text-secondary-foreground hover:bg-gray-100 dark:hover:bg-secondary/80 h-9 px-3 text-xs font-medium shadow-lg border border-gray-200 dark:border-transparent"
+                  >
+                    <ExternalLink className="h-3 w-3 mr-2" />
+                    논문 페이지
+                  </a>
                   <a 
-                    href={selectedPaper.pdfUrl} 
+                    href={selectedPdfUrl} 
                     target="_blank" 
                     rel="noreferrer"
                     className="inline-flex items-center justify-center rounded-full bg-white dark:bg-secondary text-gray-900 dark:text-secondary-foreground hover:bg-gray-100 dark:hover:bg-secondary/80 h-9 px-3 text-xs font-medium shadow-lg border border-gray-200 dark:border-transparent"
@@ -422,6 +556,18 @@ export default function App() {
                           <FileText className="h-5 w-5" />
                           <span className="text-xs font-bold uppercase tracking-widest">Research Report</span>
                         </div>
+                        {selectedPaper.analysis_ko && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-full"
+                            onClick={() => handleSaveAnalysis(selectedPaper)}
+                            disabled={saving}
+                          >
+                            {saving ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                            저장
+                          </Button>
+                        )}
                         {!selectedPaper.isAnalyzed && (
                           <Button 
                             size="sm" 
@@ -436,6 +582,11 @@ export default function App() {
                         )}
                       </div>
                       <h2 className="text-2xl font-bold leading-tight">{selectedPaper.title}</h2>
+                      {selectedPaper.isAnalyzed && selectedPaper.analyzedAt?.toDate && (
+                        <p className="text-xs text-gray-500">
+                          저장된 분석: {format(selectedPaper.analyzedAt.toDate(), "yyyy.MM.dd HH:mm")}
+                        </p>
+                      )}
                       <div className="flex flex-wrap gap-2">
                         {selectedPaper.authors.map(author => (
                           <Badge key={author} variant="secondary" className="bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400 font-normal">

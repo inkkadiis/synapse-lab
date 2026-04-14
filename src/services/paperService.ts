@@ -9,7 +9,6 @@ import {
   serverTimestamp,
   where,
   doc,
-  getDoc,
   updateDoc,
   QueryDocumentSnapshot,
   DocumentData
@@ -17,6 +16,8 @@ import {
 import { db } from "../lib/firebase";
 
 export const PAPERS_COLLECTION = "papers";
+const DEBUG_USER_ID = "debug-local-user";
+const DEBUG_PAPERS_KEY = "synapse_debug_papers";
 
 export interface Paper {
   id: string;
@@ -33,16 +34,64 @@ export interface Paper {
     key_takeaways: string[];
   };
   isAnalyzed: boolean;
+  analyzedAt?: any;
   createdAt: any;
   userId: string;
   source?: string;
 }
+
+type DebugPaperRecord = Paper & {
+  publishedAtMs: number;
+  createdAtMs: number;
+  analyzedAtMs?: number;
+};
+
+const isDebugUser = (userId?: string) => userId === DEBUG_USER_ID;
+
+const toTimestampLike = (ms: number) => ({
+  toDate: () => new Date(ms),
+});
+
+const toDebugPaper = (paper: DebugPaperRecord): Paper => ({
+  ...paper,
+  publishedAt: toTimestampLike(paper.publishedAtMs),
+  createdAt: toTimestampLike(paper.createdAtMs),
+  analyzedAt: paper.analyzedAtMs ? toTimestampLike(paper.analyzedAtMs) : undefined,
+});
+
+const getDebugPaperRecords = () => {
+  const raw = window.localStorage.getItem(DEBUG_PAPERS_KEY);
+  if (!raw) return [] as DebugPaperRecord[];
+
+  try {
+    return JSON.parse(raw) as DebugPaperRecord[];
+  } catch {
+    return [] as DebugPaperRecord[];
+  }
+};
+
+const setDebugPaperRecords = (papers: DebugPaperRecord[]) => {
+  window.localStorage.setItem(DEBUG_PAPERS_KEY, JSON.stringify(papers));
+};
 
 export const fetchPapers = async (
   userId: string, 
   pageSize: number = 10, 
   lastVisible?: QueryDocumentSnapshot<DocumentData>
 ) => {
+  if (isDebugUser(userId)) {
+    const papers = getDebugPaperRecords()
+      .filter((paper) => paper.userId === userId)
+      .sort((a, b) => b.publishedAtMs - a.publishedAtMs)
+      .slice(0, pageSize)
+      .map(toDebugPaper);
+
+    return {
+      papers,
+      lastVisible: undefined,
+    };
+  }
+
   let q = query(
     collection(db, PAPERS_COLLECTION),
     where("userId", "==", userId),
@@ -64,6 +113,10 @@ export const fetchPapers = async (
 };
 
 export const checkPaperExists = async (userId: string, pdfUrl: string) => {
+  if (isDebugUser(userId)) {
+    return getDebugPaperRecords().some((paper) => paper.userId === userId && paper.pdfUrl === pdfUrl);
+  }
+
   const q = query(
     collection(db, PAPERS_COLLECTION),
     where("userId", "==", userId),
@@ -81,6 +134,33 @@ export const savePaper = async (paperData: Partial<Paper>) => {
     if (exists) return null;
   }
 
+  if (isDebugUser(paperData.userId)) {
+    const now = Date.now();
+    const record: DebugPaperRecord = {
+      id: `debug-${now}-${Math.floor(Math.random() * 10000)}`,
+      title: paperData.title || "Untitled Paper",
+      authors: paperData.authors || [],
+      pdfUrl: paperData.pdfUrl || "",
+      publishedAt: toTimestampLike(now),
+      publishedAtMs:
+        typeof paperData.publishedAt?.toDate === "function"
+          ? paperData.publishedAt.toDate().getTime()
+          : now,
+      abstract: paperData.abstract,
+      analysis_ko: paperData.analysis_ko,
+      isAnalyzed: paperData.isAnalyzed ?? false,
+      createdAt: toTimestampLike(now),
+      createdAtMs: now,
+      userId: paperData.userId || DEBUG_USER_ID,
+      source: paperData.source,
+      analyzedAtMs: undefined,
+    };
+
+    const next = [record, ...getDebugPaperRecords()];
+    setDebugPaperRecords(next);
+    return { id: record.id };
+  }
+
   return await addDoc(collection(db, PAPERS_COLLECTION), {
     ...paperData,
     createdAt: serverTimestamp(),
@@ -89,9 +169,23 @@ export const savePaper = async (paperData: Partial<Paper>) => {
 };
 
 export const updatePaperAnalysis = async (paperId: string, analysis: any) => {
+  const debugPapers = getDebugPaperRecords();
+  const debugIndex = debugPapers.findIndex((paper) => paper.id === paperId);
+  if (debugIndex >= 0) {
+    debugPapers[debugIndex] = {
+      ...debugPapers[debugIndex],
+      analysis_ko: analysis,
+      isAnalyzed: true,
+      analyzedAtMs: Date.now(),
+    };
+    setDebugPaperRecords(debugPapers);
+    return;
+  }
+
   const paperRef = doc(db, PAPERS_COLLECTION, paperId);
   await updateDoc(paperRef, {
     analysis_ko: analysis,
-    isAnalyzed: true
+    isAnalyzed: true,
+    analyzedAt: serverTimestamp(),
   });
 };

@@ -1,0 +1,16 @@
+{
+  "name": "synapse-lab-functions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "axios": "^1.15.0",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^5.5.11",
+    "firebase-functions": "^6.0.1",
+    "pdf-parse": "^2.4.5"
+  }
+}

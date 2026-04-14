@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "./hooks/useAuth";
 import { fetchPapers, savePaper, updatePaperAnalysis, Paper } from "./services/paperService";
-import { analyzePaper } from "./services/geminiService";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -119,6 +118,21 @@ export default function App() {
 
   const toggleTheme = () => setTheme(prev => prev === "dark" ? "light" : "dark");
 
+  const requestAnalysis = async (text: string) => {
+    const analyzeRes = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!analyzeRes.ok) {
+      const errorText = await analyzeRes.text();
+      throw new Error(errorText || "Failed to analyze text");
+    }
+
+    const { analysis } = await analyzeRes.json();
+    return analysis;
+  };
+
   const loadInitialPapers = async () => {
     if (!user) return;
     setLoading(true);
@@ -198,10 +212,13 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: paper.pdfUrl })
       });
+      if (!extractRes.ok) {
+        throw new Error(await extractRes.text());
+      }
       const { text } = await extractRes.json();
 
-      // 2. AI Analysis
-      const analysis = await analyzePaper(text);
+      // 2. AI Analysis (backend API)
+      const analysis = await requestAnalysis(text);
       await updatePaperAnalysis(paper.id, analysis);
       const analyzedAt = Timestamp.now();
 
@@ -250,9 +267,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: normalizedUrl })
       });
+      if (!extractRes.ok) {
+        throw new Error(await extractRes.text());
+      }
       const { text } = await extractRes.json();
 
-      const analysis = await analyzePaper(text);
+      const analysis = await requestAnalysis(text);
       await updatePaperAnalysis(newId, analysis);
 
       loadInitialPapers();

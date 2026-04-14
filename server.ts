@@ -4,9 +4,78 @@ import path from "path";
 import axios from "axios";
 import { createRequire } from "module";
 import { XMLParser } from "fast-xml-parser";
+import { GoogleGenAI, Type } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require("pdf-parse");
+
+const ANALYSIS_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    summary: { type: Type.STRING },
+    methodology: { type: Type.STRING },
+    experimental_results: { type: Type.STRING },
+    implementation_feasibility: { type: Type.STRING },
+    key_takeaways: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+  },
+  required: [
+    "summary",
+    "methodology",
+    "experimental_results",
+    "implementation_feasibility",
+    "key_takeaways",
+  ],
+};
+
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient() {
+  if (aiClient) return aiClient;
+  if (!process.env.GEMINI_API_KEY) return null;
+
+  aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  return aiClient;
+}
+
+async function analyzeText(text: string) {
+  const ai = getAiClient();
+  if (!ai) {
+    throw new Error("GEMINI_API_KEY is not configured on the backend.");
+  }
+
+  const prompt = `
+    당신은 BCI(Brain-Computer Interface), HCI(Human-Computer Interaction), Zero-UI 분야의 시니어 연구원입니다.
+    다음 논문의 전문 텍스트를 분석하여 한국어로 상세 리포트를 작성하세요.
+    
+    분석 항목:
+    1. 전체 요약 (Summary): 논문의 핵심 기여도와 목적.
+    2. 연구 방법론 (Methodology): 사용된 기술, 알고리즘, 실험 설계.
+    3. 구체적 실험 수치 (Experimental Results): 주요 성능 지표, 통계적 유의성, 비교 데이터.
+    4. 구현 가능성 (Implementation Feasibility): 현재 기술 수준에서 '풀다이빙' 또는 실제 서비스 구현 가능성 및 기술적 장벽.
+    5. 핵심 인사이트 (Key Takeaways): 연구에서 얻을 수 있는 3가지 주요 결론.
+
+    논문 텍스트:
+    ${text}
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-1.5-pro",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: ANALYSIS_RESPONSE_SCHEMA,
+    },
+  });
+
+  return JSON.parse(response.text);
+}
 
 async function startServer() {
   const app = express();
@@ -117,6 +186,22 @@ async function startServer() {
       if (parser) {
         await parser.destroy?.();
       }
+    }
+  });
+
+  // API to analyze extracted text with Gemini
+  app.post("/api/analyze", async (req, res) => {
+    const { text } = req.body;
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "text is required" });
+    }
+
+    try {
+      const analysis = await analyzeText(text);
+      res.json({ analysis });
+    } catch (error) {
+      console.error("Analyze Error:", error);
+      res.status(500).json({ error: "Failed to analyze paper text" });
     }
   });
 

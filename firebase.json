@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "source": "functions"
+  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -7,6 +10,13 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "api/**",
+        "function": {
+          "functionId": "api",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

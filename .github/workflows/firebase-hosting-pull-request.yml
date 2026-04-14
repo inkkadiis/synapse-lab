@@ -18,6 +18,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Validate Gemini key
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "Missing required secret: GEMINI_API_KEY"
+            exit 1
+          fi
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - run: npm run build
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

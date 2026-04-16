@@ -42,6 +42,12 @@ jobs:
           cat > functions/.env <<'EOF'
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           EOF
+      - name: Authenticate Firebase CLI
+        run: |
+          cat > "$RUNNER_TEMP/firebase-service-account.json" <<'EOF'
+          ${{ secrets.FIREBASE_SERVICE_ACCOUNT_GEN_LANG_CLIENT_0963225443 }}
+          EOF
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
       - name: Deploy API function
         run: npx -y firebase-tools@latest deploy --only functions:api --project gen-lang-client-0963225443 --non-interactive
       - uses: FirebaseExtended/action-hosting-deploy@v0

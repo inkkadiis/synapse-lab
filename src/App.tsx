@@ -130,6 +130,17 @@ export default function App() {
     }
 
     const { analysis } = await analyzeRes.json();
+    const isValid =
+      analysis &&
+      typeof analysis.summary === "string" &&
+      typeof analysis.methodology === "string" &&
+      typeof analysis.experimental_results === "string" &&
+      typeof analysis.implementation_feasibility === "string" &&
+      Array.isArray(analysis.key_takeaways);
+    if (!isValid) {
+      throw new Error("분석 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.");
+    }
+
     return analysis;
   };
 
@@ -233,6 +244,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Analysis Error:", error);
+      alert("AI 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setAnalyzing(false);
     }
@@ -279,6 +291,7 @@ export default function App() {
       setNewPaperUrl("");
     } catch (error) {
       console.error("Add Paper Error:", error);
+      alert("논문 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setAnalyzing(false);
     }
@@ -499,7 +512,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Gemini 1.5 Pro Active</Badge>
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Gemini 2.5 flash Active</Badge>
           </div>
         </header>
 
@@ -567,8 +580,8 @@ export default function App() {
               </div>
 
               {/* Analysis Report */}
-              <div className="w-full md:w-[450px] lg:w-[550px] bg-white dark:bg-[#0f0f0f] flex flex-col">
-                <ScrollArea className="flex-1">
+              <div className="w-full md:w-[450px] lg:w-[550px] bg-white dark:bg-[#0f0f0f] flex flex-col min-h-0">
+                <ScrollArea className="flex-1 min-h-0">
                   <div className="p-8 space-y-8">
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
@@ -673,7 +686,7 @@ export default function App() {
 
                         <TabsContent value="takeaways" className="mt-6">
                           <div className="space-y-4">
-                            {selectedPaper.analysis_ko?.key_takeaways.map((item, i) => (
+                            {selectedPaper.analysis_ko?.key_takeaways?.map((item, i) => (
                               <motion.div 
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}

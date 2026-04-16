@@ -78,6 +78,7 @@ npm run dev
 ### AI
 
 - `GEMINI_API_KEY`
+- `GEMINI_API_KEY` is backend-only and must never be exposed as a `VITE_*` variable or injected into the client build.
 
 ### Firebase (Build-Time Frontend Config)
 
@@ -163,6 +164,7 @@ npm run dev
 ### GitHub Secrets 필수 항목
 
 - AI: `GEMINI_API_KEY`
+- `GEMINI_API_KEY`는 백엔드 전용이며, `VITE_*` 변수나 클라이언트 번들로 노출되면 안 됩니다.
 - Firebase 빌드용:
   - `VITE_FIREBASE_API_KEY`
   - `VITE_FIREBASE_AUTH_DOMAIN`

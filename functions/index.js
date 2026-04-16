@@ -2,7 +2,13 @@ const express = require("express");
 const axios = require("axios");
 const { XMLParser } = require("fast-xml-parser");
 const { PDFParse } = require("pdf-parse");
+const { initializeApp, getApps } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
 const { onRequest } = require("firebase-functions/v2/https");
+
+if (!getApps().length) {
+  initializeApp();
+}
 
 function isValidAnalysisPayload(value) {
   return (
@@ -17,6 +23,46 @@ function isValidAnalysisPayload(value) {
 
 function createRequestId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isAllowedPdfUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === "arxiv.org" ||
+      hostname.endsWith(".arxiv.org") ||
+      hostname === "biorxiv.org" ||
+      hostname === "www.biorxiv.org"
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function requireAuthorizedUser(req, res, next) {
+  if (process.env.NODE_ENV !== "production" && req.get("X-Debug-Session") === "1") {
+    req.user = { uid: "debug-local-user", isDebug: true };
+    return next();
+  }
+
+  const authHeader = req.get("Authorization") || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    req.user = await getAuth().verifyIdToken(match[1]);
+    return next();
+  } catch (error) {
+    console.error("[auth] token verification failed", error);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 }
 
 async function analyzeText(text) {
@@ -113,6 +159,7 @@ app.use((req, _res, next) => {
   }
   next();
 });
+app.use(requireAuthorizedUser);
 
 app.get("/fetch-arxiv", async (req, res) => {
   const { query = "BCI OR HCI OR \"Zero-UI\" OR \"Neural Decoding\"", maxResults = 10 } = req.query;
@@ -196,6 +243,9 @@ app.get("/fetch-biorxiv", async (req, res) => {
 app.post("/extract-pdf", async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "URL is required" });
+  if (!isAllowedPdfUrl(url)) {
+    return res.status(400).json({ error: "Only trusted arXiv and bioRxiv PDF URLs are allowed" });
+  }
   const reqId = createRequestId();
   const startedAt = Date.now();
   console.log(`[extract-pdf][${reqId}] start url=${url}`);

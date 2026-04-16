@@ -31,6 +31,7 @@ import ReactMarkdown from "react-markdown";
 import { format } from "date-fns";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import { Timestamp } from "firebase/firestore";
+import { auth } from "./lib/firebase";
 
 function normalizePdfUrl(url: string, source?: string) {
   if (!url) return url;
@@ -69,6 +70,26 @@ function getPaperLandingUrl(pdfUrl: string, source?: string) {
   }
 
   return normalized;
+}
+
+async function createAuthorizedHeaders(
+  isDebugUser: boolean,
+  init?: HeadersInit
+) {
+  const headers = new Headers(init);
+
+  if (isDebugUser && import.meta.env.DEV) {
+    headers.set("X-Debug-Session", "1");
+    return headers;
+  }
+
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) {
+    throw new Error("인증 토큰을 확인할 수 없습니다. 다시 로그인해 주세요.");
+  }
+
+  headers.set("Authorization", `Bearer ${token}`);
+  return headers;
 }
 
 export default function App() {
@@ -119,9 +140,12 @@ export default function App() {
   const toggleTheme = () => setTheme(prev => prev === "dark" ? "light" : "dark");
 
   const requestAnalysis = async (text: string) => {
+    const headers = await createAuthorizedHeaders(Boolean(user?.isDebug), {
+      "Content-Type": "application/json",
+    });
     const analyzeRes = await fetch("/api/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ text }),
     });
     if (!analyzeRes.ok) {
@@ -177,9 +201,10 @@ export default function App() {
     setFetching(true);
     try {
       // Fetch from both sources
+      const headers = await createAuthorizedHeaders(Boolean(user?.isDebug));
       const [arxivRes, biorxivRes] = await Promise.all([
-        fetch("/api/fetch-arxiv?maxResults=10"),
-        fetch("/api/fetch-biorxiv?maxResults=10")
+        fetch("/api/fetch-arxiv?maxResults=10", { headers }),
+        fetch("/api/fetch-biorxiv?maxResults=10", { headers })
       ]);
       
       const { papers: arxivPapers } = await arxivRes.json();
@@ -218,9 +243,12 @@ export default function App() {
     setAnalyzing(true);
     try {
       // 1. Extract Text
+      const headers = await createAuthorizedHeaders(Boolean(user?.isDebug), {
+        "Content-Type": "application/json",
+      });
       const extractRes = await fetch("/api/extract-pdf", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ url: paper.pdfUrl })
       });
       if (!extractRes.ok) {
@@ -274,9 +302,12 @@ export default function App() {
       const newId = docRef.id;
 
       // Extract and Analyze
+      const headers = await createAuthorizedHeaders(Boolean(user?.isDebug), {
+        "Content-Type": "application/json",
+      });
       const extractRes = await fetch("/api/extract-pdf", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ url: normalizedUrl })
       });
       if (!extractRes.ok) {

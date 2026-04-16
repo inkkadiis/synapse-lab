@@ -36,7 +36,7 @@ export const analyzePaper = async (pdfText: string) => {
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-1.5-pro", // Using 1.5 Pro as requested for deep analysis
+    model: "gemini-2.5-flash",
     contents: prompt,
     config: {
       responseMimeType: "application/json",

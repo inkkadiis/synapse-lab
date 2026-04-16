@@ -17,7 +17,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
       - run: npm ci
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+      - name: Validate Functions source load
+        run: node -e "require('./functions/index.js'); console.log('Functions source loaded')"
       - name: Validate Gemini key
         run: |
           if [ -z "$GEMINI_API_KEY" ]; then
